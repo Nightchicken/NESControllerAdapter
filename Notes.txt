@@ -1,0 +1,2 @@
+comunicating over the micro port?
+is it a serial device?
