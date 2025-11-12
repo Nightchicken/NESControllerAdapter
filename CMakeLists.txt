@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 # Initialise pico_sdk from installed location
 # (note this can come from environment, CMake cache etc)
-set(PICO_SDK_PATH "/home/matt/Project/c/pico-sdk")
+set(PICO_SDK_PATH "../pico-sdk")
 
 set(PICO_BOARD pico_w CACHE STRING "Board type")
 
@@ -27,7 +27,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(Controller Controller.cpp )
+add_executable(Controller Controller.cpp usbKeys.h )
 
 pico_set_program_name(Controller "Controller")
 pico_set_program_version(Controller "0.1")
