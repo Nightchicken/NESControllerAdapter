@@ -3,6 +3,8 @@
 #include "pico/stdlib.h"
 #include "hardware/pio.h"
 #include "hardware/gpio.h"
+#include "bsp/board_api.h"
+#include "tusb.h"
 
 #define USBV 0 //temp var
 #define USBDM 0 //temp var
@@ -24,7 +26,8 @@
 volatile bool isNES = true;
 void init(){
     //init generic pins
-    stdio_init_all();
+    board_init();
+    tusb_init();
     gpio_init(LEDA);
     gpio_init(LEDB);
     gpio_init(LEDUP);
@@ -52,12 +55,7 @@ void init(){
     gpio_set_dir(CLOCK,GPIO_OUT);
     gpio_put(CLOCK,1);
 }
-typedef struct{
-    uint8_t modifierKey;
-    uint8_t reservedKey;
-    uint8_t keysPressed[6];
-}hidInfo_t;
-short getControllerInput(){
+short getNESControllerInput(){
     /*
     0 - A
     1 - B
@@ -68,7 +66,7 @@ short getControllerInput(){
     6 - Left
     7 - Right
 */
-    short data = 0;
+    short controllerData = 0;
     gpio_put(LATCH,1);
     sleep_us(12);
     gpio_put(LATCH,0);
@@ -76,62 +74,10 @@ short getControllerInput(){
         sleep_us(6);
         gpio_put(CLOCK,0);
         sleep_us(6);
-        data = (data | !gpio_get(DATA) << i);
+        controllerData = (controllerData | (!gpio_get(DATA) << i));
         gpio_put(CLOCK,1);
     }
-    return data;
-}
-//LIGHT DECODING Test
-void decodeTest(short data){
-        data = getController();
-        if ((data & 1) == 1){
-            gpio_put(LEDA,true);
-        }
-        else{
-            gpio_put(LEDA,false);
-        }
-        if ((data & 2) == 2){
-            gpio_put(LEDB,true);
-        }
-        else{
-            gpio_put(LEDB,false);
-        }
-        if ((data & 4) == 4){
-            gpio_put(LEDSELECT,true);
-        }
-        else{
-            gpio_put(LEDSELECT,false);
-        }
-        if ((data & 8) == 8){
-            gpio_put(LEDSTART,true);
-        }
-        else{
-            gpio_put(LEDSTART,false);
-        }
-        if ((data & 16) == 16){
-            gpio_put(LEDUP,true);
-        }
-        else{
-            gpio_put(LEDUP,false);
-        }
-        if ((data & 32) == 32){
-            gpio_put(LEDDOWN,true);
-        }
-        else{
-            gpio_put(LEDDOWN,false);
-        }
-        if ((data & 64) == 64){
-            gpio_put(LEDLEFT,true);
-        }
-        else{
-            gpio_put(LEDLEFT,false);
-        }
-        if ((data & 128) == 128){
-            gpio_put(LEDRIGHT,true);
-        }
-        else{
-            gpio_put(LEDRIGHT,false);
-        }
+    return controllerData;
 }
 //Interupts
 void consoleSwitch_callback(uint pin,uint32_t events){
@@ -139,79 +85,61 @@ void consoleSwitch_callback(uint pin,uint32_t events){
         isNES = !isNES;
     }
 }
-void keyboardStartUP(){
-    /* NOTE:
-     * Step 1. signal to USB Controller speed of controller
-     * Step 2. the HIDController will ask what device is connected with a device descriptor
-    */
-}
-void emulateKeyboard(short controllerInput){
-    /* NOTE:
-     * first step is setup
-    */
-    hidInfo_t keyboardOutput;
-        if ((controllerInput & 1) == 1){
-            gpio_put(LEDA,true);
-        }
-        else{
-            gpio_put(LEDA,false);
-        }
-        if ((controllerInput & 2) == 2){
-            gpio_put(LEDB,true);
-        }
-        else{
-            gpio_put(LEDB,false);
-        }
-        if ((controllerInput & 4) == 4){
-            gpio_put(LEDSELECT,true);
-        }
-        else{
-            gpio_put(LEDSELECT,false);
-        }
-        if ((controllerInput & 8) == 8){
-            gpio_put(LEDSTART,true);
-        }
-        else{
-            gpio_put(LEDSTART,false);
-        }
-        if ((controllerInput & 16) == 16){
-            gpio_put(LEDUP,true);
-        }
-        else{
-            gpio_put(LEDUP,false);
-        }
-        if ((controllerInput & 32) == 32){
-            gpio_put(LEDDOWN,true);
-        }
-        else{
-            gpio_put(LEDDOWN,false);
-        }
-        if ((controllerInput & 64) == 64){
-            gpio_put(LEDLEFT,true);
-        }
-        else{
-            gpio_put(LEDLEFT,false);
-        }
-        if ((controllerInput & 128) == 128){
-            gpio_put(LEDRIGHT,true);
-        }
-        else{
-            gpio_put(LEDRIGHT,false);
-        }
+void emulateKeyboardNES(short controllerInput){
+    uint8_t modifier = 0;
+    uint8_t keycodes[6] = {0};
+    int keyIndex = 0;
+
+    if (controllerInput & 0x01) {
+        // A Button -> X
+        keycodes[keyIndex++] = HID_KEY_X;
+    }
+    if (controllerInput & 0x02) {
+        // B Button -> Z
+        keycodes[keyIndex++] = HID_KEY_Z;
+    }
+    if (controllerInput & 0x04) {
+        // Select -> Left Shift
+        modifier |= KEYBOARD_MODIFIER_LEFTSHIFT;
+    }
+    if (controllerInput & 0x08) {
+        // Start -> Enter
+        keycodes[keyIndex++] = HID_KEY_ENTER;
+    }
+    if (controllerInput & 0x10) {
+        // Up
+        keycodes[keyIndex++] = HID_KEY_ARROW_UP;
+    }
+    if (controllerInput & 0x20) {
+        // Down
+        keycodes[keyIndex++] = HID_KEY_ARROW_DOWN;
+    }
+    if (controllerInput & 0x40) {
+        // Left
+        keycodes[keyIndex++] = HID_KEY_ARROW_LEFT;
+    }
+    if (controllerInput & 0x80) {
+        // Right
+        keycodes[keyIndex++] = HID_KEY_ARROW_RIGHT;
+    }
+
+    tud_hid_keyboard_report(0, modifier, keycodes);
 }
 
 
 int main(){
     init();
-    short data = 0;
-    gpio_set_irq_enabled_with_callback(BUTTON, GPIO_IRQ_EDGE_RISE,true, consoleSwitch_callback); 
-    keyboardStartUP();
+    short controllerData = 0;
+    gpio_set_irq_enabled_with_callback(BUTTON, GPIO_IRQ_EDGE_RISE, true, consoleSwitch_callback);
+
     while(1){
-        if (isNES){
-            decodeTest(data);
+        tud_task();  // Process USB events
+
+        if (isNES && tud_hid_ready()){
+            controllerData = getNESControllerInput();
+            emulateKeyboardNES(controllerData);
         }
-        else{
-        }
+        sleep_ms(10);  // 10ms polling interval
     }
     return 0;
 }
