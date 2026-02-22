@@ -4,36 +4,49 @@
 #include "hardware/gpio.h"
 #include "bsp/board_api.h"
 #include "tusb.h"
-
-#define USBV 0 //temp var
-#define USBDM 0 //temp var
-#define USBDP 0 //temp var
-#define BUTTON 14
-#define BUTTON2 14
+//Part assignements
+#define BUTTON -1
+#define BUTTON2 19
 #define GPIO_IN false
 #define GPIO_OUT true
-#define ISNESLED 0//temp var
-#define ISCONTROLLERLED 0//temp var
-#define DATA 18
-#define CLOCK 16
-#define LATCH 17
+#define ISNESLED -1//temp var
+#define ISCONTROLLERLED 21//temp var
+#define DATA 2
+#define CLOCK 4
+#define LATCH 3
 volatile bool isNES = true;
 volatile bool isController = false;
+
+void button_callback(uint pin, uint32_t events);
+
 void init(){
-    //init generic pins
     board_init();
     tusb_init();
     gpio_init(CLOCK);
     gpio_init(LATCH);
     gpio_init(DATA);
-    gpio_init(BUTTON);
+    if (BUTTON != -1) {
+        gpio_init(BUTTON);
+        gpio_set_dir(BUTTON,GPIO_IN);
+        gpio_pull_up(BUTTON);
+        gpio_set_irq_enabled_with_callback(BUTTON, GPIO_IRQ_EDGE_FALL, true, &button_callback);
+    }
+    if (BUTTON2 != -1) {
+		gpio_init(BUTTON2);
+        gpio_set_dir(BUTTON2,GPIO_IN);
+		gpio_pull_down(BUTTON2);
+		gpio_set_irq_enabled_with_callback(BUTTON2, GPIO_IRQ_EDGE_RISE, true, &button_callback);
+	}
     //Set direction of pins in or out
-    gpio_set_dir(BUTTON,GPIO_IN);
     gpio_set_dir(DATA,GPIO_IN);
     gpio_set_dir(LATCH,GPIO_OUT);
     gpio_set_dir(CLOCK,GPIO_OUT);
+	gpio_init(ISCONTROLLERLED);
     gpio_set_dir(ISCONTROLLERLED,GPIO_OUT);
-    gpio_set_dir(ISNESLED,GPIO_OUT);
+    if (ISNESLED != -1) {
+        gpio_set_dir(ISNESLED,GPIO_OUT);
+    }
+    gpio_pull_up(DATA);  
     gpio_put(CLOCK,1);
 }
 short getNESControllerInput(){
@@ -57,7 +70,7 @@ short getNESControllerInput(){
         sleep_us(6);
         controllerData = (controllerData | (!gpio_get(DATA) << i));
         gpio_put(CLOCK,1);
-    }
+   }
     return controllerData;
 }
 short getSNESControllerInput(){
@@ -88,16 +101,13 @@ short getSNESControllerInput(){
     }
     return controllerData;
 }
-//Interupts
-void consoleSwitch_callback(uint pin,uint32_t events){
+void button_callback(uint pin, uint32_t events){
     if (pin == BUTTON){
         isNES = !isNES;
     }
-}
-void controllerSwitch_callback(uint pin,uint32_t events){
     if (pin == BUTTON2){
         isController = !isController;
-    }
+  }
 }
 void emulateKeyboardNES(short controllerInput){
     uint8_t modifier = 0;
@@ -116,7 +126,7 @@ void emulateKeyboardNES(short controllerInput){
         // Select -> Left Shift
         modifier |= KEYBOARD_MODIFIER_LEFTSHIFT;
     }
-    if (controllerInput & 0x08) {
+    if (controllerInput& 0x08) {
         // Start -> Enter
         keycodes[keyIndex++] = HID_KEY_ENTER;
     }
@@ -137,7 +147,7 @@ void emulateKeyboardNES(short controllerInput){
         keycodes[keyIndex++] = HID_KEY_ARROW_RIGHT;
     }
 
-    tud_hid_keyboard_report(0, modifier, keycodes);
+    tud_hid_keyboard_report(1, modifier, keycodes);  // Report ID 1 for keyboard
 }
 void emulateControllerNES(short controllerInput){
     uint8_t hat = GAMEPAD_HAT_CENTERED;
@@ -180,7 +190,7 @@ void emulateControllerNES(short controllerInput){
       buttons |= GAMEPAD_BUTTON_START;
     } // Start
 
-    tud_hid_gamepad_report(0, 0, 0, 0, 0, 0, 0, hat, buttons);
+    tud_hid_gamepad_report(2, 0, 0, 0, 0, 0, 0, hat, buttons);  // Report ID 2 for gamepad
 }
 void emulateKeyboardSNES(short controllerInput){
     uint8_t modifier = 0;
@@ -236,7 +246,7 @@ void emulateKeyboardSNES(short controllerInput){
         keycodes[keyIndex++] = HID_KEY_W;
     }
 
-    tud_hid_keyboard_report(0, modifier, keycodes);
+    tud_hid_keyboard_report(1, modifier, keycodes);  // Report ID 1 for keyboard
 }
 void emulateControllerSNES(short controllerInput){
     uint8_t hat = GAMEPAD_HAT_CENTERED;
@@ -246,7 +256,6 @@ void emulateControllerSNES(short controllerInput){
     bool down = controllerInput & 0x020;
     bool left = controllerInput & 0x040;
     bool right = controllerInput & 0x080;
-
     if (up && right)        hat = GAMEPAD_HAT_UP_RIGHT;
     else if (up && left)    hat = GAMEPAD_HAT_UP_LEFT;
     else if (down && right) hat = GAMEPAD_HAT_DOWN_RIGHT;
@@ -255,8 +264,6 @@ void emulateControllerSNES(short controllerInput){
     else if (down)          hat = GAMEPAD_HAT_DOWN;
     else if (left)          hat = GAMEPAD_HAT_LEFT;
     else if (right)         hat = GAMEPAD_HAT_RIGHT;
-
-    // Map buttons to generic gamepad buttons
     if (controllerInput & 0x001) {
       buttons |= GAMEPAD_BUTTON_B;
     } // B
@@ -282,35 +289,35 @@ void emulateControllerSNES(short controllerInput){
       buttons |= GAMEPAD_BUTTON_TR;
     } // Right Bumper
 
-    tud_hid_gamepad_report(0, 0, 0, 0, 0, 0, 0, hat, buttons);
+    tud_hid_gamepad_report(2, 0, 0, 0, 0, 0, 0, hat, buttons);  // Report ID 2 for gamepad
 }
 
 int main(){
     init();
     short controllerData = 0;
-    gpio_set_irq_enabled_with_callback(BUTTON, GPIO_IRQ_EDGE_RISE, true, consoleSwitch_callback);
-    gpio_set_irq_enabled_with_callback(BUTTON2, GPIO_IRQ_EDGE_RISE, true, controllerSwitch_callback);
+    gpio_put(ISCONTROLLERLED,isController);
     while(1){
         tud_task();  // Process USB events
-        if (isNES && tud_hid_ready()){
-			if (!isController){
-				controllerData = getNESControllerInput();
-				emulateKeyboardNES(controllerData);
-			}
-			if (isController){
-				controllerData = getNESControllerInput();
-				emulateControllerNES(controllerData);
-			}
-        }
-        if (!isNES && tud_hid_ready()){
-			if (!isController){
-				controllerData = getSNESControllerInput();
-				emulateKeyboardSNES(controllerData);
-			}
-			if (isController){
-				controllerData = getSNESControllerInput();
-				emulateControllerSNES(controllerData);
-			}
+        if (tud_hid_ready()){
+            if (isNES) {
+                // NES mode
+                controllerData = getNESControllerInput();
+                if (isController) {
+                    emulateControllerNES(controllerData);
+                } else {
+                    emulateKeyboardNES(controllerData);
+                }
+            } else {
+                // SNES mode
+                controllerData = getSNESControllerInput();
+                if (isController) {
+                    emulateControllerSNES(controllerData);
+                } else {
+                    emulateKeyboardSNES(controllerData);
+                }
+            }
+            // Update LED to show controller mode
+            gpio_put(ISCONTROLLERLED, isController);
         }
         sleep_ms(10);  // 10ms polling interval
     }
